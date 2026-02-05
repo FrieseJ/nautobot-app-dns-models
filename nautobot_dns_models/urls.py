@@ -20,6 +20,8 @@ router.register("mx-records", views.MXRecordUIViewSet)
 router.register("txt-records", views.TXTRecordUIViewSet)
 router.register("ptr-records", views.PTRRecordUIViewSet)
 router.register("srv-records", views.SRVRecordUIViewSet)
+router.register("tsig-keys", views.TSIGKeyUIViewSet)
+router.register("zone-transfer-acls", views.ZoneTransferACLUIViewSet)
 
 urlpatterns = [
     path("docs/", RedirectView.as_view(url=static("nautobot_dns_models/docs/index.html")), name="docs"),

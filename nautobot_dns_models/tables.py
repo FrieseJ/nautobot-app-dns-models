@@ -367,3 +367,85 @@ class SRVRecordTable(DNSRecordTable):
             "zone",
             "actions",
         )
+
+
+class TSIGKeyTable(BaseTable):
+    """Table for TSIG Key list view."""
+
+    pk = ToggleColumn()
+    name = tables.Column(linkify=True)
+    algorithm = tables.Column()
+    is_active = tables.BooleanColumn(verbose_name="Active")
+    last_used = tables.DateTimeColumn()
+    actions = ButtonsColumn(
+        models.TSIGKey,
+        buttons=("changelog", "edit", "delete"),
+    )
+
+    class Meta(BaseTable.Meta):
+        """Meta attributes."""
+
+        model = models.TSIGKey
+        fields = (
+            "pk",
+            "name",
+            "algorithm",
+            "is_active",
+            "description",
+            "last_used",
+            "actions",
+        )
+
+        default_columns = (
+            "pk",
+            "name",
+            "algorithm",
+            "is_active",
+            "last_used",
+            "actions",
+        )
+
+
+class ZoneTransferACLTable(BaseTable):
+    """Table for Zone Transfer ACL list view."""
+
+    pk = ToggleColumn()
+    name = tables.Column(linkify=True)
+    ip_address = tables.Column()
+    prefix_length = tables.Column(verbose_name="Prefix")
+    action = tables.Column()
+    priority = tables.Column()
+    is_active = tables.BooleanColumn(verbose_name="Active")
+    tsig_key = tables.Column(linkify=True)
+    actions = ButtonsColumn(
+        models.ZoneTransferACL,
+        buttons=("changelog", "edit", "delete"),
+    )
+
+    class Meta(BaseTable.Meta):
+        """Meta attributes."""
+
+        model = models.ZoneTransferACL
+        fields = (
+            "pk",
+            "name",
+            "ip_address",
+            "prefix_length",
+            "action",
+            "priority",
+            "is_active",
+            "tsig_key",
+            "description",
+            "actions",
+        )
+
+        default_columns = (
+            "pk",
+            "name",
+            "ip_address",
+            "prefix_length",
+            "action",
+            "priority",
+            "is_active",
+            "actions",
+        )

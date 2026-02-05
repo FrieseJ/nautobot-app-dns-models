@@ -164,3 +164,27 @@ class SRVRecordSerializer(DNSRecordSerializer):
 
         model = models.SRVRecord
         fields = "__all__"
+
+
+class TSIGKeySerializer(NautobotModelSerializer):
+    """TSIGKey Serializer."""
+
+    url = serializers.HyperlinkedIdentityField(view_name="plugins-api:nautobot_dns_models-api:tsigkey-detail")
+
+    class Meta:
+        """Meta attributes."""
+
+        model = models.TSIGKey
+        fields = "__all__"
+
+
+class ZoneTransferACLSerializer(NautobotModelSerializer):
+    """ZoneTransferACL Serializer."""
+
+    url = serializers.HyperlinkedIdentityField(view_name="plugins-api:nautobot_dns_models-api:zonetransferacl-detail")
+
+    class Meta:
+        """Meta attributes."""
+
+        model = models.ZoneTransferACL
+        fields = "__all__"

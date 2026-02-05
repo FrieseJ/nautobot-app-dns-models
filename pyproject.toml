@@ -30,6 +30,10 @@ include = [
 python = ">=3.10,<3.14"
 # Used for local development
 nautobot = ">=3.0.0,<4.0.0"
+# DNS library for zone transfer (AXFR/IXFR) support
+dnspython = ">=2.6.0"
+# Encrypted field support for TSIG keys
+django-cryptography = ">=1.1.0"
 
 [tool.poetry.group.dev.dependencies]
 coverage = "*"

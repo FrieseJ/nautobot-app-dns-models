@@ -30,6 +30,18 @@ menu_items = (
                         weight=200,
                         permissions=["nautobot_dns_models.view_dnsview"],
                     ),
+                    NavMenuItem(
+                        link="plugins:nautobot_dns_models:tsigkey_list",
+                        name="TSIG Keys",
+                        weight=300,
+                        permissions=["nautobot_dns_models.view_tsigkey"],
+                    ),
+                    NavMenuItem(
+                        link="plugins:nautobot_dns_models:zonetransferacl_list",
+                        name="Zone Transfer ACLs",
+                        weight=400,
+                        permissions=["nautobot_dns_models.view_zonetransferacl"],
+                    ),
                 ),
             ),
         ),

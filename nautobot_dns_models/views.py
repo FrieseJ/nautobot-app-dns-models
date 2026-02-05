@@ -22,7 +22,9 @@ from nautobot_dns_models.api.serializers import (
     NSRecordSerializer,
     PTRRecordSerializer,
     SRVRecordSerializer,
+    TSIGKeySerializer,
     TXTRecordSerializer,
+    ZoneTransferACLSerializer,
 )
 from nautobot_dns_models.filters import (
     AAAARecordFilterSet,
@@ -34,7 +36,9 @@ from nautobot_dns_models.filters import (
     NSRecordFilterSet,
     PTRRecordFilterSet,
     SRVRecordFilterSet,
+    TSIGKeyFilterSet,
     TXTRecordFilterSet,
+    ZoneTransferACLFilterSet,
 )
 from nautobot_dns_models.forms import (
     AAAARecordBulkEditForm,
@@ -64,9 +68,15 @@ from nautobot_dns_models.forms import (
     SRVRecordBulkEditForm,
     SRVRecordFilterForm,
     SRVRecordForm,
+    TSIGKeyBulkEditForm,
+    TSIGKeyFilterForm,
+    TSIGKeyForm,
     TXTRecordBulkEditForm,
     TXTRecordFilterForm,
     TXTRecordForm,
+    ZoneTransferACLBulkEditForm,
+    ZoneTransferACLFilterForm,
+    ZoneTransferACLForm,
 )
 from nautobot_dns_models.models import (
     AAAARecord,
@@ -78,7 +88,9 @@ from nautobot_dns_models.models import (
     NSRecord,
     PTRRecord,
     SRVRecord,
+    TSIGKey,
     TXTRecord,
+    ZoneTransferACL,
 )
 from nautobot_dns_models.tables import (
     AAAARecordTable,
@@ -90,7 +102,9 @@ from nautobot_dns_models.tables import (
     NSRecordTable,
     PTRRecordTable,
     SRVRecordTable,
+    TSIGKeyTable,
     TXTRecordTable,
+    ZoneTransferACLTable,
 )
 
 
@@ -446,4 +460,50 @@ class SRVRecordUIViewSet(views.NautobotUIViewSet):
         panels=[
             ObjectFieldsPanel(weight=100, section=SectionChoices.LEFT_HALF, fields="__all__", additional_fields=["ttl"])
         ]
+    )
+
+
+class TSIGKeyUIViewSet(views.NautobotUIViewSet):
+    """TSIGKey UI ViewSet."""
+
+    form_class = TSIGKeyForm
+    bulk_update_form_class = TSIGKeyBulkEditForm
+    filterset_class = TSIGKeyFilterSet
+    filterset_form_class = TSIGKeyFilterForm
+    serializer_class = TSIGKeySerializer
+    lookup_field = "pk"
+    queryset = TSIGKey.objects.all()
+    table_class = TSIGKeyTable
+
+    object_detail_content = ObjectDetailContent(
+        panels=[
+            ObjectFieldsPanel(
+                weight=100,
+                section=SectionChoices.LEFT_HALF,
+                fields="__all__",
+            ),
+        ],
+    )
+
+
+class ZoneTransferACLUIViewSet(views.NautobotUIViewSet):
+    """ZoneTransferACL UI ViewSet."""
+
+    form_class = ZoneTransferACLForm
+    bulk_update_form_class = ZoneTransferACLBulkEditForm
+    filterset_class = ZoneTransferACLFilterSet
+    filterset_form_class = ZoneTransferACLFilterForm
+    serializer_class = ZoneTransferACLSerializer
+    lookup_field = "pk"
+    queryset = ZoneTransferACL.objects.all()
+    table_class = ZoneTransferACLTable
+
+    object_detail_content = ObjectDetailContent(
+        panels=[
+            ObjectFieldsPanel(
+                weight=100,
+                section=SectionChoices.LEFT_HALF,
+                fields="__all__",
+            ),
+        ],
     )

@@ -13,7 +13,9 @@ from nautobot_dns_models.api.serializers import (
     NSRecordSerializer,
     PTRRecordSerializer,
     SRVRecordSerializer,
+    TSIGKeySerializer,
     TXTRecordSerializer,
+    ZoneTransferACLSerializer,
 )
 from nautobot_dns_models.filters import (
     AAAARecordFilterSet,
@@ -26,7 +28,9 @@ from nautobot_dns_models.filters import (
     NSRecordFilterSet,
     PTRRecordFilterSet,
     SRVRecordFilterSet,
+    TSIGKeyFilterSet,
     TXTRecordFilterSet,
+    ZoneTransferACLFilterSet,
 )
 from nautobot_dns_models.models import (
     AAAARecord,
@@ -39,7 +43,9 @@ from nautobot_dns_models.models import (
     NSRecord,
     PTRRecord,
     SRVRecord,
+    TSIGKey,
     TXTRecord,
+    ZoneTransferACL,
 )
 
 
@@ -149,5 +155,25 @@ class SRVRecordViewSet(NautobotModelViewSet):
     queryset = SRVRecord.objects.all()
     serializer_class = SRVRecordSerializer
     filterset_class = SRVRecordFilterSet
+
+    lookup_field = "pk"
+
+
+class TSIGKeyViewSet(NautobotModelViewSet):
+    """TSIGKey API ViewSet."""
+
+    queryset = TSIGKey.objects.all()
+    serializer_class = TSIGKeySerializer
+    filterset_class = TSIGKeyFilterSet
+
+    lookup_field = "pk"
+
+
+class ZoneTransferACLViewSet(NautobotModelViewSet):
+    """ZoneTransferACL API ViewSet."""
+
+    queryset = ZoneTransferACL.objects.all()
+    serializer_class = ZoneTransferACLSerializer
+    filterset_class = ZoneTransferACLFilterSet
 
     lookup_field = "pk"

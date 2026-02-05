@@ -1,9 +1,15 @@
 """Models for Nautobot DNS Models."""
 
+import base64
+import ipaddress
+import secrets
+
 from constance import config as constance_config
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
+from django_cryptography.fields import encrypt
 from nautobot.apps.models import BaseModel, PrimaryModel, extras_features
 from nautobot.core.models.fields import ForeignKeyWithAutoRelatedName
 from nautobot.ipam.choices import IPAddressVersionChoices
@@ -15,6 +21,22 @@ def dns_wire_label_length(label):
         return len(label)
 
     return len("xn--" + label.encode("punycode").decode("ascii"))
+
+
+class TSIGAlgorithmChoices(models.TextChoices):
+    """TSIG algorithm choices."""
+
+    HMAC_SHA256 = "hmac-sha256", "HMAC-SHA256"
+    HMAC_SHA384 = "hmac-sha384", "HMAC-SHA384"
+    HMAC_SHA512 = "hmac-sha512", "HMAC-SHA512"
+    HMAC_MD5 = "hmac-md5", "HMAC-MD5"
+
+
+class ACLActionChoices(models.TextChoices):
+    """ACL action choices."""
+
+    ALLOW = "allow", "Allow"
+    DENY = "deny", "Deny"
 
 
 class DNSModel(PrimaryModel):
@@ -214,6 +236,531 @@ class DNSZone(DNSModel):
         unique_together = [["name", "dns_view"]]
         verbose_name = "DNS Zone"
         verbose_name_plural = "DNS Zones"
+
+
+@extras_features(
+    "custom_fields",
+    "custom_links",
+    "custom_validators",
+    "export_templates",
+    "graphql",
+    "relationships",
+    "webhooks",
+)
+class TSIGKey(PrimaryModel):
+    """
+    TSIG (Transaction Signature) Key model for DNS zone transfer authentication.
+
+    Implements RFC 2845 (TSIG) and RFC 4635 (HMAC SHA TSIG Algorithm Identifiers).
+    Stores cryptographic keys for authenticating DNS zone transfer requests (AXFR/IXFR).
+    """
+
+    # Key length in bits for each algorithm
+    KEY_LENGTHS = {
+        TSIGAlgorithmChoices.HMAC_SHA256: 256,
+        TSIGAlgorithmChoices.HMAC_SHA384: 384,
+        TSIGAlgorithmChoices.HMAC_SHA512: 512,
+        TSIGAlgorithmChoices.HMAC_MD5: 128,
+    }
+
+    name = models.CharField(
+        max_length=200,
+        unique=True,
+        help_text="TSIG key name in DNS format (e.g., 'transfer-key.example.com'). Must be unique.",
+        verbose_name="Key Name",
+    )
+
+    algorithm = models.CharField(
+        max_length=50,
+        choices=TSIGAlgorithmChoices.choices,
+        default=TSIGAlgorithmChoices.HMAC_SHA256,
+        help_text="HMAC algorithm for TSIG signature generation and verification.",
+        verbose_name="Algorithm",
+    )
+
+    # Encrypted field for secret storage
+    secret = encrypt(
+        models.CharField(
+            max_length=500,
+            help_text="Base64-encoded TSIG secret key. Stored encrypted in database.",
+            verbose_name="Secret Key",
+        )
+    )
+
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description of this TSIG key's purpose or usage.",
+        verbose_name="Description",
+    )
+
+    zones = models.ManyToManyField(
+        to="DNSZone",
+        related_name="tsig_keys",
+        blank=True,
+        help_text="DNS zones this key is authorized to transfer. Empty = global key (all zones).",
+        verbose_name="Authorized Zones",
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this TSIG key is active and can be used for authentication.",
+        verbose_name="Active",
+    )
+
+    last_used = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the last successful authentication using this key.",
+        verbose_name="Last Used",
+    )
+
+    class Meta:
+        """Meta attributes for TSIGKey."""
+
+        verbose_name = "TSIG Key"
+        verbose_name_plural = "TSIG Keys"
+        ordering = ["name"]
+
+    def __str__(self):
+        """String representation of TSIGKey."""
+        return f"{self.name} ({self.algorithm})"
+
+    def get_absolute_url(self, api=False):
+        """Return the absolute URL for this TSIGKey."""
+        if api:
+            return f"/api/plugins/nautobot-dns-models/tsig-keys/{self.pk}/"
+        return f"/plugins/dns/tsig-keys/{self.pk}/"
+
+    def clean(self):
+        """Validate TSIG key fields."""
+        super().clean()
+
+        # Validate key name format (DNS name)
+        if self.name:
+            # Basic DNS name validation
+            if not self.name.replace("-", "").replace(".", "").replace("_", "").isalnum():
+                raise ValidationError({
+                    "name": "TSIG key name must be a valid DNS name (alphanumeric, hyphens, dots, underscores only)."
+                })
+
+            # Validate label length (DNS wire format)
+            labels = self.name.split(".")
+            for label in labels:
+                if label:
+                    # Check if label is empty
+                    if not label:
+                        raise ValidationError({"name": "Empty labels are not allowed"})
+                    # Check label length
+                    length = dns_wire_label_length(label)
+                    if length > 63:
+                        raise ValidationError({
+                            "name": f"DNS label '{label}' is too long ({length} bytes in wire format, max 63)"
+                        })
+
+        # Validate secret is base64-encoded
+        if self.secret:
+            try:
+                base64.b64decode(self.secret, validate=True)
+            except Exception:
+                raise ValidationError({
+                    "secret": "TSIG secret must be a valid base64-encoded string."
+                })
+
+    def save(self, *args, **kwargs):
+        """Override save to run validation."""
+        self.clean()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def generate_key(cls, name, algorithm=TSIGAlgorithmChoices.HMAC_SHA256, description=""):
+        """
+        Generate a new TSIG key with a cryptographically secure random secret.
+
+        Args:
+            name: Key name in DNS format
+            algorithm: HMAC algorithm (default: HMAC-SHA256)
+            description: Optional description
+
+        Returns:
+            TSIGKey instance (unsaved)
+
+        Example:
+            >>> key = TSIGKey.generate_key("transfer-key.example.com")
+            >>> key.save()
+        """
+        # Get recommended key length for algorithm
+        key_length_bits = cls.KEY_LENGTHS.get(algorithm, 256)
+        key_length_bytes = key_length_bits // 8
+
+        # Generate cryptographically secure random bytes
+        random_bytes = secrets.token_bytes(key_length_bytes)
+
+        # Encode as base64
+        secret_b64 = base64.b64encode(random_bytes).decode("ascii")
+
+        # Create TSIGKey instance (not saved)
+        return cls(
+            name=name,
+            algorithm=algorithm,
+            secret=secret_b64,
+            description=description or f"Auto-generated {algorithm} key",
+            is_active=True,
+        )
+
+    def mark_used(self):
+        """Update the last_used timestamp to current time."""
+        self.last_used = timezone.now()
+        self.save(update_fields=["last_used"])
+
+    def is_authorized_for_zone(self, zone):
+        """
+        Check if this TSIG key is authorized for a specific zone.
+
+        Args:
+            zone: DNSZone instance
+
+        Returns:
+            bool: True if authorized (global key or zone in authorized list)
+        """
+        if not self.is_active:
+            return False
+
+        # If no zones specified, it's a global key (authorized for all)
+        if not self.zones.exists():
+            return True
+
+        # Check if zone is in authorized list
+        return self.zones.filter(pk=zone.pk).exists()
+
+    def get_secret_display(self):
+        """
+        Return a masked version of the secret for display purposes.
+
+        Returns:
+            str: Masked secret (e.g., "******abc123")
+        """
+        if not self.secret:
+            return ""
+
+        # Show last 8 characters only
+        if len(self.secret) > 8:
+            return f"{'*' * (len(self.secret) - 8)}{self.secret[-8:]}"
+        else:
+            return "*" * len(self.secret)
+
+
+@extras_features(
+    "custom_fields",
+    "custom_links",
+    "custom_validators",
+    "export_templates",
+    "graphql",
+    "relationships",
+    "webhooks",
+)
+class ZoneTransferACL(PrimaryModel):
+    """
+    Access Control List entry for DNS zone transfer requests.
+
+    Implements IP-based access control (first stage of 3-stage validation):
+    1. ACL Check (IP/CIDR matching) - THIS MODEL
+    2. TSIG Validation - TSIGKey model
+    3. Query Type Check - Zone transfer service
+
+    ACL entries are evaluated in priority order (lower number = higher priority).
+    First matching rule determines the action (ALLOW or DENY).
+    """
+
+    name = models.CharField(
+        max_length=200,
+        help_text="Descriptive name for this ACL entry.",
+        verbose_name="Name",
+    )
+
+    ip_address = models.GenericIPAddressField(
+        protocol="both",  # IPv4 and IPv6
+        help_text="Source IP address or network address for CIDR notation.",
+        verbose_name="IP Address",
+    )
+
+    prefix_length = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(128)],
+        help_text="CIDR prefix length (e.g., 24 for /24). Leave blank for single host.",
+        verbose_name="Prefix Length",
+    )
+
+    zones = models.ManyToManyField(
+        to="DNSZone",
+        related_name="zone_transfer_acls",
+        blank=True,
+        help_text="DNS zones this ACL applies to. Empty = global (all zones).",
+        verbose_name="Zones",
+    )
+
+    tsig_key = models.ForeignKey(
+        to="TSIGKey",
+        on_delete=models.SET_NULL,
+        related_name="acl_entries",
+        null=True,
+        blank=True,
+        help_text="Optional: Require this TSIG key in addition to IP match.",
+        verbose_name="Required TSIG Key",
+    )
+
+    action = models.CharField(
+        max_length=10,
+        choices=ACLActionChoices.choices,
+        default=ACLActionChoices.ALLOW,
+        help_text="Action to take when this ACL matches.",
+        verbose_name="Action",
+    )
+
+    priority = models.IntegerField(
+        default=100,
+        validators=[MinValueValidator(0), MaxValueValidator(9999)],
+        help_text="Priority for rule evaluation. Lower values = higher priority. Range: 0-9999.",
+        verbose_name="Priority",
+    )
+
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description of this ACL entry's purpose.",
+        verbose_name="Description",
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this ACL entry is active and evaluated.",
+        verbose_name="Active",
+    )
+
+    class Meta:
+        """Meta attributes for ZoneTransferACL."""
+
+        verbose_name = "Zone Transfer ACL"
+        verbose_name_plural = "Zone Transfer ACLs"
+        ordering = ["priority", "name"]
+        unique_together = [["ip_address", "prefix_length", "priority"]]
+        indexes = [
+            models.Index(fields=["priority", "is_active"], name="acl_priority_active_idx"),
+            models.Index(fields=["action"], name="acl_action_idx"),
+            models.Index(fields=["is_active"], name="acl_is_active_idx"),
+        ]
+
+    def __str__(self):
+        """String representation of ACL entry."""
+        network = self.get_network_display()
+        action = self.get_action_display()
+        zone_info = "global" if not self.zones.exists() else f"{self.zones.count()} zone(s)"
+        return f"{self.name} [{action}] {network} ({zone_info})"
+
+    def get_absolute_url(self, api=False):
+        """Return the absolute URL for this ACL entry."""
+        if api:
+            return f"/api/plugins/nautobot-dns-models/zone-transfer-acls/{self.pk}/"
+        return f"/plugins/dns/zone-transfer-acls/{self.pk}/"
+
+    def clean(self):
+        """Validate ACL entry fields."""
+        super().clean()
+
+        # Validate IP address and prefix
+        try:
+            if self.prefix_length is not None:
+                # Validate as network
+                network = ipaddress.ip_network(
+                    f"{self.ip_address}/{self.prefix_length}",
+                    strict=False
+                )
+
+                # Check if it's IPv4 or IPv6 and validate prefix length
+                if isinstance(network, ipaddress.IPv4Network):
+                    if self.prefix_length > 32:
+                        raise ValidationError({
+                            "prefix_length": f"IPv4 prefix length must be 0-32, got {self.prefix_length}."
+                        })
+                elif isinstance(network, ipaddress.IPv6Network):
+                    if self.prefix_length > 128:
+                        raise ValidationError({
+                            "prefix_length": f"IPv6 prefix length must be 0-128, got {self.prefix_length}."
+                        })
+            else:
+                # Validate as single IP
+                ipaddress.ip_address(self.ip_address)
+        except ValueError as e:
+            raise ValidationError({
+                "ip_address": f"Invalid IP address or network: {e}"
+            })
+
+    def save(self, *args, **kwargs):
+        """Override save to run validation."""
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def get_network_display(self):
+        """
+        Return human-readable network representation.
+
+        Returns:
+            str: IP/CIDR notation (e.g., "192.168.1.0/24" or "10.0.0.5")
+        """
+        if self.prefix_length is not None:
+            return f"{self.ip_address}/{self.prefix_length}"
+        return str(self.ip_address)
+
+    def matches_ip(self, client_ip):
+        """
+        Check if a client IP address matches this ACL entry.
+
+        Args:
+            client_ip: IP address string or ipaddress object
+
+        Returns:
+            bool: True if IP matches this ACL entry
+
+        Example:
+            >>> acl = ZoneTransferACL(ip_address="192.168.1.0", prefix_length=24)
+            >>> acl.matches_ip("192.168.1.50")
+            True
+            >>> acl.matches_ip("10.0.0.1")
+            False
+        """
+        if not self.is_active:
+            return False
+
+        try:
+            # Convert string to IP address object if needed
+            if isinstance(client_ip, str):
+                client_ip = ipaddress.ip_address(client_ip)
+
+            # Check if this ACL is a network (CIDR) or single host
+            if self.prefix_length is not None:
+                # Network matching
+                acl_network = ipaddress.ip_network(
+                    f"{self.ip_address}/{self.prefix_length}",
+                    strict=False
+                )
+                return client_ip in acl_network
+            else:
+                # Single host matching
+                acl_ip = ipaddress.ip_address(self.ip_address)
+                return client_ip == acl_ip
+
+        except (ValueError, TypeError):
+            # Invalid IP format
+            return False
+
+    def applies_to_zone(self, zone):
+        """
+        Check if this ACL applies to a specific zone.
+
+        Args:
+            zone: DNSZone instance
+
+        Returns:
+            bool: True if ACL applies (global or zone in list)
+        """
+        if not self.is_active:
+            return False
+
+        # Global ACL (no zones specified)
+        if not self.zones.exists():
+            return True
+
+        # Check if zone is in the list
+        return self.zones.filter(pk=zone.pk).exists()
+
+    @classmethod
+    def get_ordered_acls(cls, zone=None, client_ip=None, active_only=True):
+        """
+        Get ACL entries in evaluation order (priority ascending).
+
+        Args:
+            zone: Optional DNSZone to filter by
+            client_ip: Optional IP to pre-filter matches
+            active_only: Only return active ACLs (default: True)
+
+        Returns:
+            QuerySet: Ordered ACL entries
+
+        Example:
+            >>> acls = ZoneTransferACL.get_ordered_acls(zone=my_zone)
+            >>> for acl in acls:
+            ...     if acl.matches_ip(client_ip):
+            ...         return acl.action  # First match wins
+        """
+        queryset = cls.objects.all()
+
+        if active_only:
+            queryset = queryset.filter(is_active=True)
+
+        # Filter by zone if specified
+        if zone:
+            # Include global ACLs (no zones) and zone-specific ACLs
+            queryset = queryset.filter(
+                models.Q(zones__isnull=True) | models.Q(zones=zone)
+            ).distinct()
+
+        # Order by priority (lower = higher priority)
+        queryset = queryset.order_by("priority", "created")
+
+        # Prefetch related data for efficiency
+        queryset = queryset.prefetch_related("zones", "tsig_key")
+
+        return queryset
+
+    @classmethod
+    def check_access(cls, client_ip, zone=None, tsig_key=None):
+        """
+        Evaluate ACLs to determine if access should be granted.
+
+        First matching ACL determines the result. If no ACL matches, default is DENY.
+
+        Args:
+            client_ip: Client IP address (string or ipaddress object)
+            zone: Optional DNSZone instance
+            tsig_key: Optional TSIGKey instance used for authentication
+
+        Returns:
+            tuple: (allowed: bool, matched_acl: ZoneTransferACL or None, reason: str)
+
+        Example:
+            >>> allowed, acl, reason = ZoneTransferACL.check_access(
+            ...     client_ip="192.168.1.50",
+            ...     zone=my_zone,
+            ...     tsig_key=my_key
+            ... )
+            >>> if not allowed:
+            ...     logger.warning(f"Access denied: {reason}")
+        """
+        # Get ordered ACLs applicable to this zone
+        acls = cls.get_ordered_acls(zone=zone, active_only=True)
+
+        # Evaluate each ACL in priority order
+        for acl in acls:
+            # Check if IP matches
+            if not acl.matches_ip(client_ip):
+                continue
+
+            # Check if zone applies
+            if zone and not acl.applies_to_zone(zone):
+                continue
+
+            # Check TSIG key requirement if specified
+            if acl.tsig_key:
+                if not tsig_key or tsig_key.pk != acl.tsig_key.pk:
+                    # IP matches but wrong/missing TSIG key
+                    continue
+
+            # Match found! Return action
+            allowed = acl.action == ACLActionChoices.ALLOW
+            reason = f"Matched ACL '{acl.name}' (priority {acl.priority}): {acl.get_action_display()}"
+            return (allowed, acl, reason)
+
+        # No ACL matched - default deny
+        return (False, None, "No matching ACL found - default deny")
 
 
 class DNSRecord(DNSModel):

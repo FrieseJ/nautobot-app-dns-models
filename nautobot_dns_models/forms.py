@@ -450,3 +450,129 @@ class SRVRecordFilterForm(NautobotFilterForm):
         "port",
         "target",
     ]
+
+
+class TSIGKeyForm(NautobotModelForm):
+    """TSIGKey creation/edit form."""
+
+    zones = DynamicModelMultipleChoiceField(
+        queryset=models.DNSZone.objects.all(),
+        required=False,
+        label="Authorized Zones",
+        help_text="Zones this key can transfer. Leave empty for global access.",
+    )
+
+    class Meta:
+        """Meta attributes."""
+
+        model = models.TSIGKey
+        fields = ["name", "algorithm", "secret", "description", "zones", "is_active", "tags"]
+        widgets = {
+            "secret": forms.PasswordInput(render_value=True),
+        }
+
+
+class TSIGKeyBulkEditForm(TagsBulkEditFormMixin, NautobotBulkEditForm):
+    """TSIGKey bulk edit form."""
+
+    pk = forms.ModelMultipleChoiceField(queryset=models.TSIGKey.objects.all(), widget=forms.MultipleHiddenInput)
+    description = forms.CharField(required=False)
+    is_active = forms.NullBooleanField(required=False, label="Active")
+    algorithm = forms.ChoiceField(required=False, choices=models.TSIGAlgorithmChoices.choices)
+
+    class Meta:
+        """Meta attributes."""
+
+        nullable_fields = ["description"]
+
+
+class TSIGKeyFilterForm(NautobotFilterForm):
+    """Filter form for TSIG Keys."""
+
+    q = forms.CharField(
+        required=False,
+        label="Search",
+        help_text="Search within Name and Description.",
+    )
+    name = forms.CharField(required=False, label="Name")
+    algorithm = forms.MultipleChoiceField(
+        required=False,
+        choices=models.TSIGAlgorithmChoices.choices,
+        label="Algorithm",
+    )
+    is_active = forms.NullBooleanField(required=False, label="Active")
+    model = models.TSIGKey
+    fields = ["q", "name", "algorithm", "is_active"]
+
+
+class ZoneTransferACLForm(NautobotModelForm):
+    """ZoneTransferACL creation/edit form."""
+
+    zones = DynamicModelMultipleChoiceField(
+        queryset=models.DNSZone.objects.all(),
+        required=False,
+        label="Zones",
+        help_text="Zones this ACL applies to. Leave empty for all zones.",
+    )
+    tsig_key = DynamicModelChoiceField(
+        queryset=models.TSIGKey.objects.all(),
+        required=False,
+        label="Required TSIG Key",
+        help_text="Optional TSIG key requirement for this ACL.",
+    )
+
+    class Meta:
+        """Meta attributes."""
+
+        model = models.ZoneTransferACL
+        fields = [
+            "name",
+            "ip_address",
+            "prefix_length",
+            "zones",
+            "tsig_key",
+            "action",
+            "priority",
+            "description",
+            "is_active",
+            "tags",
+        ]
+
+
+class ZoneTransferACLBulkEditForm(TagsBulkEditFormMixin, NautobotBulkEditForm):
+    """ZoneTransferACL bulk edit form."""
+
+    pk = forms.ModelMultipleChoiceField(queryset=models.ZoneTransferACL.objects.all(), widget=forms.MultipleHiddenInput)
+    description = forms.CharField(required=False)
+    is_active = forms.NullBooleanField(required=False, label="Active")
+    action = forms.ChoiceField(required=False, choices=models.ACLActionChoices.choices)
+    priority = forms.IntegerField(required=False)
+
+    class Meta:
+        """Meta attributes."""
+
+        nullable_fields = ["description", "tsig_key"]
+
+
+class ZoneTransferACLFilterForm(NautobotFilterForm):
+    """Filter form for Zone Transfer ACLs."""
+
+    q = forms.CharField(
+        required=False,
+        label="Search",
+        help_text="Search within Name and Description.",
+    )
+    name = forms.CharField(required=False, label="Name")
+    action = forms.MultipleChoiceField(
+        required=False,
+        choices=models.ACLActionChoices.choices,
+        label="Action",
+    )
+    is_active = forms.NullBooleanField(required=False, label="Active")
+    tsig_key = DynamicModelChoiceField(
+        queryset=models.TSIGKey.objects.all(),
+        required=False,
+        label="TSIG Key",
+    )
+    model = models.ZoneTransferACL
+    fields = ["q", "name", "action", "is_active", "tsig_key"]

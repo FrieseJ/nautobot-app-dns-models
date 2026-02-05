@@ -8,6 +8,8 @@ services:
     command: "nautobot-server runserver 0.0.0.0:8080"
     ports:
       - "8080:8080"
+      - "5354:5354/tcp"  # Zone transfer server (TCP)
+      - "5354:5354/udp"  # Zone transfer server (UDP)
     volumes:
       - "./nautobot_config.py:/opt/nautobot/nautobot_config.py"
       - "../:/source"

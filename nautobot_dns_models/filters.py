@@ -234,3 +234,38 @@ class SRVRecordFilterSet(DNSRecordFilterSet):
 
         model = models.SRVRecord
         fields = "__all__"
+
+
+class TSIGKeyFilterSet(NautobotFilterSet):
+    """Filter for TSIGKey."""
+
+    q = SearchFilter(
+        filter_predicates={
+            "name": "icontains",
+            "description": "icontains",
+        },
+    )
+
+    class Meta:
+        """Meta attributes."""
+
+        model = models.TSIGKey
+        fields = ["name", "algorithm", "is_active"]
+
+
+class ZoneTransferACLFilterSet(NautobotFilterSet):
+    """Filter for ZoneTransferACL."""
+
+    q = SearchFilter(
+        filter_predicates={
+            "name": "icontains",
+            "description": "icontains",
+            "ip_address": "icontains",
+        },
+    )
+
+    class Meta:
+        """Meta attributes."""
+
+        model = models.ZoneTransferACL
+        fields = ["name", "action", "priority", "is_active", "tsig_key"]
